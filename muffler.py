@@ -20,9 +20,10 @@ class Tail:
             except FileNotFoundError:
                 self.file_exists = False
 
-    def __init__(self, filename: str) -> None:
+    def __init__(self, filename: str, watch_rotated_file_seconds: int=1000) -> None:
         self.filename = filename
         self.state = Tail.FileState(filename)
+        self.watch_rotated_file_seconds = watch_rotated_file_seconds
 
     def __enter__(self):
         return self
@@ -48,6 +49,7 @@ class Tail:
 
     def readlines(self):
         old_file = None
+        close_old_file_after = 0
         old_state = None
         file = None
 
@@ -58,6 +60,11 @@ class Tail:
                     if not line:
                         break
                     yield line
+
+                if time.time() > close_old_file_after:
+                    close_old_file_after = 0
+                    old_file.close()
+                    old_file = None
 
             state = Tail.FileState(self.filename)
 
@@ -74,13 +81,12 @@ class Tail:
                 if old_file:
                     old_file.close()
                 old_file = file
+                close_old_file_after = time.time() + self.watch_rotated_file_seconds
                 old_state = None
                 file = None
-                print("File rotated")
                 continue
 
             if state.size is not None and state.size < current_pos:
-                print("File restarted")
                 file.seek(0)
 
             old_state = state
@@ -97,7 +103,7 @@ class Tail:
 if __name__ == '__main__':
     import sys
 
-    with Tail("/tmp/tailtest") as t:
+    with Tail("/tmp/tailtest", watch_rotated_file_seconds=20) as t:
         for line in t.readlines():
             print(f"Got line: {line.strip()}")
             sys.stdout.flush()
