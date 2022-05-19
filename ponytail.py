@@ -1,12 +1,33 @@
 #!/usr/bin/env python3
 
+"""Python "tail -F" like functionality, targeted for processing log data,
+with a goal of being reliable and robust.
+
+Written by Sean Reifschneider, May 2022
+"""
+
 import time
 import os
-from typing import Union
+from typing import Union, Generator
 
 
-class Tail:
+class Follow:
+    """Create an object to follow a file.
+
+    Features:
+        - Detects if file is truncated and starts over at the beginning.
+        - Detects file rename and new file created (for log rotation).
+        - Continues reading old file after rotation to catch stragglers written there.
+        - Can write an optional "offset" file so it can pick up from where it left off.
+
+    f = Follow('/var/log/syslog')
+    for line in f.readlines():
+        print(line.rstrip())
+    """
+
     class FileState:
+        """Internal class for representing the state of a file."""
+
         def __init__(self, filename: str) -> None:
             self.dev_no = None
             self.inode_no = None
@@ -20,20 +41,30 @@ class Tail:
             except FileNotFoundError:
                 self.file_exists = False
 
-    def __init__(self, filename: str, watch_rotated_file_seconds: int=1000) -> None:
+    def __init__(self, filename: str, watch_rotated_file_seconds: int = 300) -> None:
+        """File watcher.
+
+        Args:
+            filename: Filename to watch.
+            watch_rotated_file_seconds: After detecting the file has been rotated,
+                    watch the old file for this many seconds to see if new data
+                    has been written to it after the rotation.
+        """
         self.filename = filename
-        self.state = Tail.FileState(filename)
         self.watch_rotated_file_seconds = watch_rotated_file_seconds
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        return
 
     def _has_file_rotated(
         self, new_state: FileState, old_state: Union[FileState, None]
     ) -> bool:
+        """INTERNAL: Detect if file has been rotated.
+
+        Args:
+            new_state: Current file state.
+            old_state: None or the previous state of the file.
+
+        Returns:
+            True if it believes the file has been rotated, False otherwise.
+        """
         if not new_state.file_exists:
             return True
 
@@ -47,7 +78,20 @@ class Tail:
 
         return False
 
-    def readlines(self):
+
+    def readlines(
+        self, none_on_no_data: bool = False
+    ) -> Generator[Union[str, None], None, None]:
+        """Returns lines in the file.  When reaching EOF, it will wait for more
+        data to be written, so this will never terminate.
+
+        Args:
+            none_on_no_data: If true, instead of sleeping and continuing,
+                    it will return None if data is not ready.
+
+        Returns: Yields strings representing the lines in the file, or None as
+                described with "none_on_no_data".
+        """
         old_file = None
         close_old_file_after = 0
         old_state = None
@@ -66,10 +110,13 @@ class Tail:
                     old_file.close()
                     old_file = None
 
-            state = Tail.FileState(self.filename)
+            state = Follow.FileState(self.filename)
 
             if not file and not state.file_exists:
-                time.sleep(1)
+                if none_on_no_data:
+                    yield None
+                else:
+                    time.sleep(1)
                 continue
 
             if not file:
@@ -95,15 +142,9 @@ class Tail:
             while True:
                 line = file.readline()
                 if not line:
-                    time.sleep(1)
+                    if none_on_no_data:
+                        yield None
+                    else:
+                        time.sleep(1)
                     break
                 yield line
-
-
-if __name__ == '__main__':
-    import sys
-
-    with Tail("/tmp/tailtest", watch_rotated_file_seconds=20) as t:
-        for line in t.readlines():
-            print(f"Got line: {line.strip()}")
-            sys.stdout.flush()
