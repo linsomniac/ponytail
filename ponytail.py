@@ -8,7 +8,8 @@ Written by Sean Reifschneider, May 2022
 
 import time
 import os
-from typing import Union, Generator
+import re
+from typing import Union, Generator, TextIO
 
 
 class Follow:
@@ -41,17 +42,26 @@ class Follow:
             except FileNotFoundError:
                 self.file_exists = False
 
-    def __init__(self, filename: str, watch_rotated_file_seconds: int = 300) -> None:
+    def __init__(
+        self,
+        filename: str,
+        offset_filename: Union[str, None] = None,
+        watch_rotated_file_seconds: int = 300,
+    ) -> None:
         """File watcher.
 
         Args:
-            filename: Filename to watch.
+            filename:                   Filename to watch.
+            offset_filename:            Filename to write/read the offset location information to.
             watch_rotated_file_seconds: After detecting the file has been rotated,
                     watch the old file for this many seconds to see if new data
                     has been written to it after the rotation.
         """
         self.filename = filename
         self.watch_rotated_file_seconds = watch_rotated_file_seconds
+        self.offset_filename = offset_filename
+        self.file = None
+        self.state = None
 
     def _has_file_rotated(
         self, new_state: FileState, old_state: Union[FileState, None]
@@ -78,6 +88,52 @@ class Follow:
 
         return False
 
+    def save_offset(self) -> None:
+        """Write an offset file if a filename has been given."""
+        state = Follow.FileState(self.filename)
+        if self.offset_filename is None:
+            return
+        if self.file is None:
+            return
+        if state is None or state.dev_no is None or state.inode_no is None:
+            return
+
+        tmp_filename = str(self.offset_filename) + ".tmp"
+        with open(tmp_filename, "w") as fp:
+            fp.write(
+                "inode_no={} dev_no={} offset={}\n".format(
+                    state.inode_no, state.dev_no, self.file.tell()
+                )
+            )
+        os.rename(tmp_filename, self.offset_filename)
+
+    def _load_offset(self, file: TextIO, state: FileState) -> None:
+        """INTERNAL: Update the file position if there an offset file exists with a position.  This will
+        detect when the file has been rotated or truncated and start over.
+
+        Args:
+            file:  File object to seek to saved offset.
+            state: Current FileState object.
+        """
+        if self.offset_filename is None:
+            return
+        if not os.path.exists(self.offset_filename):
+            return
+        if state.inode_no is None or state.dev_no is None or state.size is None:
+            return
+
+        line = open(self.offset_filename, "r").readline()
+
+        m = re.search(r"inode_no=(\d+) dev_no=(\d+) offset=(\d+)", line)
+        if not m:
+            return
+
+        inode_no = int(m.group(1))
+        dev_no = int(m.group(2))
+        offset = int(m.group(3))
+        if inode_no != state.inode_no or dev_no != state.dev_no or offset > state.size:
+            return
+        file.seek(offset)
 
     def readlines(
         self, none_on_no_data: bool = False
@@ -95,7 +151,7 @@ class Follow:
         old_file = None
         close_old_file_after = 0
         old_state = None
-        file = None
+        updated_since_save = False
 
         while True:
             if old_file:
@@ -110,41 +166,47 @@ class Follow:
                     old_file.close()
                     old_file = None
 
-            state = Follow.FileState(self.filename)
+            self.state = Follow.FileState(self.filename)
 
-            if not file and not state.file_exists:
+            if not self.file and not self.state.file_exists:
                 if none_on_no_data:
                     yield None
                 else:
                     time.sleep(1)
                 continue
 
-            if not file:
-                file = open(self.filename, "r")
+            if not self.file:
+                self.file = open(self.filename, "r")
+                self._load_offset(self.file, self.state)
 
-            current_pos = file.tell()
+            current_pos = self.file.tell()
 
-            if self._has_file_rotated(state, old_state):
+            if self._has_file_rotated(self.state, old_state):
                 if old_file:
                     old_file.close()
-                old_file = file
+                old_file = self.file
                 close_old_file_after = time.time() + self.watch_rotated_file_seconds
                 old_state = None
-                file = None
+                self.file = None
                 continue
 
-            if state.size is not None and state.size < current_pos:
-                file.seek(0)
+            if self.state.size is not None and self.state.size < current_pos:
+                self.file.seek(0)
 
-            old_state = state
-            del state
+            old_state = self.state
+            self.state = None
 
             while True:
-                line = file.readline()
+                line = self.file.readline()
                 if not line:
+                    if updated_since_save:
+                        self.save_offset()
+                        updated_since_save = False
                     if none_on_no_data:
                         yield None
                     else:
                         time.sleep(1)
                     break
+
                 yield line
+                updated_since_save = True
