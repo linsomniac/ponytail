@@ -54,7 +54,7 @@ class Follow:
             filename:                   Filename to watch.
             offset_filename:            If given, a file name to write offset information
                     to.  This file is written either whenever the end of file is reached
-                    during reading, or when the "save\_offset()" method is called.  If
+                    during reading, or when the "save_offset()" method is called.  If
                     you break out of the read loop (say because of Control-C), it is best
                     to save the offset.
             watch_rotated_file_seconds: After detecting the file has been rotated,

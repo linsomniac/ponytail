@@ -3,3 +3,10 @@ max-line-length = 90
 
 [tool.black]
 line-length = 90
+
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+pythonpath = "src"
