@@ -47,6 +47,7 @@ class Follow:
         filename: str,
         offset_filename: Union[str, None] = None,
         watch_rotated_file_seconds: int = 300,
+        errors: Union[str, None] = None,
     ) -> None:
         """File watcher.
 
@@ -60,12 +61,17 @@ class Follow:
             watch_rotated_file_seconds: After detecting the file has been rotated,
                     watch the old file for this many seconds to see if new data
                     has been written to it after the rotation.
+            errors: As in "open()", what to do on encoding errors (default will
+                    raise a UnicodeDecodeError exception, can also be "replace" or
+                    "ignore".  See the Python "open()" documentation for more
+                    information.
         """
         self.filename = filename
         self.watch_rotated_file_seconds = watch_rotated_file_seconds
         self.offset_filename = offset_filename
         self.file = None
         self.state = None
+        self.open_errors = errors
 
     def _has_file_rotated(
         self, new_state: FileState, old_state: Union[FileState, None]
@@ -180,7 +186,10 @@ class Follow:
                 continue
 
             if not self.file:
-                self.file = open(self.filename, "r")
+                open_kwargs = {}
+                if self.open_errors:
+                    open_kwargs = {"errors": self.open_errors}
+                self.file = open(self.filename, "r", **open_kwargs)
                 self._load_offset(self.file, self.state)
 
             current_pos = self.file.tell()
