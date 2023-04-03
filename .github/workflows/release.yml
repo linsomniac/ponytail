@@ -5,6 +5,7 @@
 
 name: Upload Python Package
 
+#  See: https://github.com/pypa/gh-action-pypi-publish
 on:
   release:
     types: [released]
