@@ -29,7 +29,11 @@ def test_follow_rotated_file_expire(tmp_path):
     assert g.__next__() == "Line 2\n"
     assert g.__next__() == "Line 3\n"
 
+    if sys.platform == "win32":
+        fp.close()
     os.rename(tmp_file, tmp_file2)
+    if sys.platform == "win32":
+        fp = open(tmp_file2, "a")
     assert g.__next__() is None
     fp.write("Line 4\n")
     fp.flush()
