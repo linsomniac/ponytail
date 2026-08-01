@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 import time
+
+import pytest
+
 from ponytail import Follow
 
 
@@ -25,7 +29,11 @@ def test_follow_rotated_file_expire(tmp_path):
     assert g.__next__() == "Line 2\n"
     assert g.__next__() == "Line 3\n"
 
+    if sys.platform == "win32":
+        fp.close()
     os.rename(tmp_file, tmp_file2)
+    if sys.platform == "win32":
+        fp = open(tmp_file2, "a")
     assert g.__next__() is None
     fp.write("Line 4\n")
     fp.flush()
@@ -112,6 +120,7 @@ def test_follow_offset_file(tmp_path):
     assert g.__next__() == "Line 5\n"
     f.save_offset()
 
+    fp.close()
     os.rename(tmp_file, tmp_file2)
     fp = open(tmp_file, "a")
     fp.write("Line 6\n")
@@ -150,3 +159,29 @@ def test_save_offset_replaces_existing_offset_file(tmp_path, monkeypatch):
     f.save_offset()
     assert second_offset > first_offset
     assert f"offset={second_offset}" in offset_file.read_text()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows sharing semantics")
+def test_follow_does_not_block_windows_log_rotation(tmp_path):
+    tmp_file = tmp_path / "testfile"
+    rotated_file = tmp_path / "testfile.1"
+    tmp_file.write_text("Line 1\n")
+
+    f = Follow(tmp_file, watch_rotated_file_seconds=60)
+    g = f.readlines(none_on_no_data=True)
+
+    try:
+        assert g.__next__() == "Line 1\n"
+
+        os.rename(tmp_file, rotated_file)
+        with open(rotated_file, "a") as fp:
+            fp.write("Line 2\n")
+        tmp_file.write_text("Line 3\n")
+
+        assert g.__next__() == "Line 2\n"
+        assert g.__next__() is None
+        assert g.__next__() == "Line 3\n"
+    finally:
+        g.close()
+        if f.file:
+            f.file.close()

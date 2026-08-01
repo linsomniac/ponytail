@@ -189,6 +189,10 @@ class Follow:
                 open_kwargs = {}
                 if self.open_errors:
                     open_kwargs = {"errors": self.open_errors}
+                if os.name == "nt":
+                    from ponytail._windows import shared_delete_opener
+
+                    open_kwargs["opener"] = shared_delete_opener
                 self.file = open(self.filename, "r", **open_kwargs)
                 self._load_offset(self.file, self.state)
 
