@@ -120,6 +120,7 @@ def test_follow_offset_file(tmp_path):
     assert g.__next__() == "Line 5\n"
     f.save_offset()
 
+    fp.close()
     os.rename(tmp_file, tmp_file2)
     fp = open(tmp_file, "a")
     fp.write("Line 6\n")
