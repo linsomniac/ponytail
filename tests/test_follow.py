@@ -122,3 +122,31 @@ def test_follow_offset_file(tmp_path):
     g = f.readlines(none_on_no_data=True)
     assert g.__next__() == "Line 6\n"
     assert g.__next__() == "Line 7\n"
+
+
+def test_save_offset_replaces_existing_offset_file(tmp_path, monkeypatch):
+    tmp_file = tmp_path / "testfile"
+    offset_file = tmp_path / "testfile.offset"
+    tmp_file.write_text("Line 1\nLine 2\n")
+
+    f = Follow(tmp_file, offset_filename=offset_file)
+    g = f.readlines(none_on_no_data=True)
+    assert g.__next__() == "Line 1\n"
+    first_offset = f.file.tell()
+    f.save_offset()
+    assert f"offset={first_offset}" in offset_file.read_text()
+
+    original_rename = os.rename
+
+    def windows_rename(source, destination):
+        if os.path.exists(destination):
+            raise FileExistsError(destination)
+        original_rename(source, destination)
+
+    monkeypatch.setattr(os, "rename", windows_rename)
+
+    assert g.__next__() == "Line 2\n"
+    second_offset = f.file.tell()
+    f.save_offset()
+    assert second_offset > first_offset
+    assert f"offset={second_offset}" in offset_file.read_text()
