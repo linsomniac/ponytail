@@ -43,8 +43,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: python -m pip install pytest
-      - name: Test Windows log rotation
-        run: >
-          pytest
-          tests/test_follow.py::test_follow_rotated_file_expire
-          tests/test_follow.py::test_follow_does_not_block_windows_log_rotation
+      - name: Test with pytest
+        run: pytest

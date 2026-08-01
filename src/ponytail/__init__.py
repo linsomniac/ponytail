@@ -115,7 +115,7 @@ class Follow:
                     state.inode_no, state.dev_no, self.file.tell()
                 )
             )
-        os.rename(tmp_filename, self.offset_filename)
+        os.replace(tmp_filename, self.offset_filename)
 
     def _load_offset(self, file: TextIO, state: FileState) -> None:
         """INTERNAL: Update the file position if there an offset file exists with a position.  This will
